@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Ojo 3D Médico — OptiCheck</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#020810;font-family:'Inter','Segoe UI',sans-serif;overflow:hidden;color:#fff}
+canvas{display:block;width:100vw;height:100vh}
+
+/* ─── Vignette overlay ─── */
+#vignette{position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse at center,transparent 55%,rgba(2,8,20,.75) 100%);z-index:1}
+
+/* ─── Title ─── */
+#title{position:fixed;top:18px;left:50%;transform:translateX(-50%);
+  color:#00d4ff;font-size:17px;font-weight:700;letter-spacing:.12em;
+  text-shadow:0 0 22px #00aaff99;text-transform:uppercase;white-space:nowrap;
+  pointer-events:none;z-index:10}
+
+/* ─── Hint ─── */
+#hint{position:fixed;bottom:82px;left:50%;transform:translateX(-50%);
+  color:#223344;font-size:11px;letter-spacing:.07em;pointer-events:none;
+  white-space:nowrap;z-index:10}
+
+/* ─── Toggle button ─── */
+#toggle-bar{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);
+  display:flex;border-radius:10px;overflow:hidden;border:1.5px solid #00d4ff33;
+  backdrop-filter:blur(14px);box-shadow:0 4px 28px rgba(0,0,0,.65);z-index:10}
+#toggle-bar button{padding:11px 26px;border:none;cursor:pointer;font-family:inherit;
+  font-size:12.5px;font-weight:700;letter-spacing:.07em;transition:all .28s ease}
+#btn-sano{background:rgba(0,180,120,.22);color:#00e8a0}
+#btn-diab{background:rgba(2,8,20,.78);color:#556677}
+.diab-mode #btn-sano{background:rgba(2,8,20,.78);color:#556677}
+.diab-mode #btn-diab{background:rgba(200,30,30,.22);color:#ff6666}
+
+/* ─── Layers panel ─── */
+#layers{position:fixed;top:62px;right:18px;background:rgba(2,8,20,.86);
+  backdrop-filter:blur(14px);border:1px solid #00d4ff1e;border-radius:10px;
+  padding:13px 15px;min-width:178px;box-shadow:0 4px 24px rgba(0,0,0,.55);z-index:10}
+#layers h3{color:#00d4ff;font-size:10.5px;font-weight:700;letter-spacing:.14em;
+  text-transform:uppercase;margin-bottom:10px}
+#layers label{display:flex;align-items:center;gap:8px;cursor:pointer;
+  margin-bottom:6.5px;font-size:12px;color:#b0d8f0;user-select:none}
+#layers label input{accent-color:#00d4ff;width:13px;height:13px;cursor:pointer}
+#layers label.off{color:#445566}
+
+/* ─── Info panel ─── */
+#info{position:fixed;top:62px;left:18px;background:rgba(2,8,20,.86);
+  backdrop-filter:blur(14px);border:1px solid rgba(0,180,120,.22);border-radius:10px;
+  padding:13px 15px;max-width:215px;box-shadow:0 4px 24px rgba(0,0,0,.55);
+  z-index:10;transition:border-color .35s}
+#info h3{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  margin-bottom:9px;color:#00e8a0;transition:color .35s}
+#info ul{color:#8aabb8;font-size:11.5px;padding-left:14px;line-height:1.85}
+.diab-mode #info{border-color:rgba(200,40,40,.22)}
+.diab-mode #info h3{color:#ff7766}
+
+/* ─── Labels ─── */
+.lbl{position:fixed;pointer-events:none;transform:translate(-50%,-50%);
+  font-size:11px;font-weight:600;letter-spacing:.05em;white-space:nowrap;
+  background:rgba(2,8,20,.72);border-radius:5px;padding:3px 8px;
+  backdrop-filter:blur(5px);z-index:5;transition:opacity .3s}
+</style>
+</head>
+<body>
+<canvas id="C"></canvas>
+<div id="vignette"></div>
+<div id="title">Modelo 3D Médico · Ojo Humano</div>
+
+<!-- Toggle -->
+<div id="toggle-bar">
+  <button id="btn-sano" onclick="setMode(false)">✅&nbsp; OJO SANO</button>
+  <button id="btn-diab" onclick="setMode(true)">⚠️&nbsp; RETINOPATÍA</button>
+</div>
+
+<!-- Layers -->
+<div id="layers">
+  <h3>Capas anatómicas</h3>
+  <label><input type="checkbox" id="l-sclera"  checked onchange="toggleLayer('sclera',this.checked)">Esclerótica</label>
+  <label><input type="checkbox" id="l-cornea"  checked onchange="toggleLayer('cornea',this.checked)">Córnea / Lente</label>
+  <label><input type="checkbox" id="l-iris"    checked onchange="toggleLayer('iris',this.checked)">Iris</label>
+  <label><input type="checkbox" id="l-retina"  checked onchange="toggleLayer('retina',this.checked)">Retina</label>
+  <label><input type="checkbox" id="l-vessels" checked onchange="toggleLayer('vessels',this.checked)">Vasos sanguíneos</label>
+  <label><input type="checkbox" id="l-nerve"   checked onchange="toggleLayer('nerve',this.checked)">Nervio óptico</label>
+  <label><input type="checkbox" id="l-labels"  checked onchange="toggleLabels(this.checked)">Etiquetas 3D</label>
+</div>
+
+<!-- Info -->
+<div id="info">
+  <h3 id="info-title">✅ Ojo Sano</h3>
+  <ul id="info-list">
+    <li>Retina naranja-rojiza sana</li>
+    <li>Vasos bien definidos</li>
+    <li>Disco óptico claro</li>
+    <li>Mácula con fóvea central</li>
+    <li>Cristalino transparente</li>
+    <li>Sin lesiones visibles</li>
+  </ul>
+</div>
+
+<div id="hint">Arrastrar para rotar · Scroll para zoom</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  SETUP
+// ════════════════════════════════════════════════════════
+var W = window.innerWidth, H = window.innerHeight;
+var scene = new THREE.Scene();
+scene.background = new THREE.Color(0x020810);
+scene.fog = new THREE.Fog(0x020810, 14, 42);
+
+var cam = new THREE.PerspectiveCamera(42, W/H, 0.1, 100);
+cam.position.set(0, 0, 4.5);
+
+var ren = new THREE.WebGLRenderer({canvas:document.getElementById('C'), antialias:true});
+ren.setSize(W, H);
+ren.setPixelRatio(Math.min(devicePixelRatio, 2));
+ren.shadowMap.enabled = true;
+ren.shadowMap.type = THREE.PCFSoftShadowMap;
+ren.outputEncoding = THREE.sRGBEncoding;
+ren.toneMapping = THREE.ACESFilmicToneMapping;
+ren.toneMappingExposure = 1.1;
+
+var oc = new THREE.OrbitControls(cam, ren.domElement);
+oc.autoRotate = true; oc.autoRotateSpeed = 0.55;
+oc.enablePan = false; oc.minDistance = 2.2; oc.maxDistance = 9;
+oc.enableDamping = true; oc.dampingFactor = 0.05;
+
+// Bloom
+var composer = new THREE.EffectComposer(ren);
+composer.addPass(new THREE.RenderPass(scene, cam));
+var bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(W,H), 0.45, 0.65, 0.55);
+composer.addPass(bloomPass);
+
+// ════════════════════════════════════════════════════════
+//  STARS
+// ════════════════════════════════════════════════════════
+(function(){
+  var geo = new THREE.BufferGeometry();
+  var pos = new Float32Array(3000*3);
+  for(var i=0;i<pos.length;i++) pos[i]=(Math.random()-.5)*160;
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  scene.add(new THREE.Points(geo,new THREE.PointsMaterial({color:0xffffff,size:.08,transparent:true,opacity:.45})));
+})();
+
+// ════════════════════════════════════════════════════════
+//  LIGHTING
+// ════════════════════════════════════════════════════════
+scene.add(new THREE.AmbientLight(0x2a3a55, 0.18));
+
+var keyLight = new THREE.DirectionalLight(0xfff8f0, 1.25);
+keyLight.position.set(5,8,6); keyLight.castShadow=true;
+keyLight.shadow.mapSize.set(2048,2048);
+scene.add(keyLight);
+
+var fillLight = new THREE.PointLight(0x00c4ee, 0.75);
+fillLight.position.set(-4,-2,4); scene.add(fillLight);
+
+var backLight = new THREE.PointLight(0x3050cc, 0.38);
+backLight.position.set(3,2,-4); scene.add(backLight);
+
+var rimLight = new THREE.PointLight(0x0088bb, 0.5);
+rimLight.position.set(0,-5,-3); scene.add(rimLight);
+
+var spot = new THREE.SpotLight(0xffffff, 0.9, 0, .28, .85);
+spot.position.set(0,5,2.5); spot.castShadow=true; scene.add(spot);
+
+// ════════════════════════════════════════════════════════
+//  TEXTURES
+// ════════════════════════════════════════════════════════
+function makeIrisTex(){
+  var cv=document.createElement('canvas'); cv.width=cv.height=512;
+  var x=cv.getContext('2d'), C=256;
+  var bg=x.createRadialGradient(C,C,0,C,C,248);
+  bg.addColorStop(0,'#2a5c8a'); bg.addColorStop(.3,'#1e4a7a');
+  bg.addColorStop(.7,'#163866'); bg.addColorStop(1,'#0a2040');
+  x.fillStyle=bg; x.fillRect(0,0,512,512);
+  for(var a=0;a<360;a+=1.8){
+    var r=a*Math.PI/180, ir=68+Math.random()*8, or=230+Math.random()*14;
+    x.beginPath(); x.moveTo(C+Math.cos(r)*ir,C+Math.sin(r)*ir);
+    x.lineTo(C+Math.cos(r)*or,C+Math.sin(r)*or);
+    var al=.04+Math.random()*.13, br=140+Math.random()*80;
+    x.strokeStyle='rgba('+br+','+(br*.8+30)+','+(br+55)+','+al+')';
+    x.lineWidth=.7+Math.random()*1.1; x.stroke();
+  }
+  x.beginPath(); x.arc(C,C,95,0,Math.PI*2);
+  x.strokeStyle='rgba(80,130,180,.18)'; x.lineWidth=3; x.stroke();
+  x.beginPath(); x.arc(C,C,242,0,Math.PI*2);
+  x.strokeStyle='rgba(6,16,40,.95)'; x.lineWidth=14; x.stroke();
+  var pg=x.createRadialGradient(C,C,0,C,C,66);
+  pg.addColorStop(0,'#000'); pg.addColorStop(.82,'#040404'); pg.addColorStop(1,'rgba(4,4,4,0)');
+  x.fillStyle=pg; x.beginPath(); x.arc(C,C,66,0,Math.PI*2); x.fill();
+  x.fillStyle='rgba(255,255,255,.28)'; x.beginPath();
+  x.ellipse(C-18,C-22,17,10,-.4,0,Math.PI*2); x.fill();
+  return new THREE.CanvasTexture(cv);
+}
+
+function makeHealthyRetinaTex(){
+  var cv=document.createElement('canvas'); cv.width=cv.height=1024;
+  var x=cv.getContext('2d');
+  var bg=x.createRadialGradient(512,512,0,512,512,520);
+  bg.addColorStop(0,'#c86040'); bg.addColorStop(.4,'#b85535');
+  bg.addColorStop(.7,'#a04030'); bg.addColorStop(1,'#7a2e20');
+  x.fillStyle=bg; x.fillRect(0,0,1024,1024);
+  for(var i=0;i<6000;i++){
+    var px=Math.random()*1024, py=Math.random()*1024;
+    x.beginPath(); x.arc(px,py,Math.random()*1.4,0,Math.PI*2);
+    x.fillStyle='rgba('+(Math.random()>.5?180:70)+','+(Math.random()*25+15)+',8,.07)'; x.fill();
+  }
+  // Optic disc
+  var dx=370,dy=512,dg=x.createRadialGradient(dx,dy,0,dx,dy,62);
+  dg.addColorStop(0,'#f0d898'); dg.addColorStop(.45,'#d4a858'); dg.addColorStop(1,'rgba(180,100,38,0)');
+  x.fillStyle=dg; x.beginPath(); x.ellipse(dx,dy,62,56,0,0,Math.PI*2); x.fill();
+  // Macula
+  var mx=660,my=512,mg=x.createRadialGradient(mx,my,0,mx,my,88);
+  mg.addColorStop(0,'#7a2810'); mg.addColorStop(.45,'#982e18'); mg.addColorStop(1,'rgba(160,50,22,0)');
+  x.fillStyle=mg; x.beginPath(); x.ellipse(mx,my,88,76,0,0,Math.PI*2); x.fill();
+  // Fovea
+  var fg=x.createRadialGradient(mx,my,0,mx,my,30);
+  fg.addColorStop(0,'#520e06'); fg.addColorStop(.55,'#7a1c10'); fg.addColorStop(1,'rgba(130,40,20,0)');
+  x.fillStyle=fg; x.beginPath(); x.arc(mx,my,30,0,Math.PI*2); x.fill();
+  // Vessels
+  x.lineCap='round'; x.lineJoin='round';
+  [[dx,dy],[300,415],[205,338],[110,272]].forEach(function(p,i,a){
+    if(i===0){x.beginPath();x.moveTo(p[0],p[1]);}else{x.lineTo(p[0],p[1]);}
+  }); x.strokeStyle='rgba(165,22,22,.88)'; x.lineWidth=3.2; x.stroke();
+  x.beginPath(); x.moveTo(dx,dy); x.lineTo(300,608); x.lineTo(205,686); x.lineTo(110,748);
+  x.stroke();
+  x.beginPath(); x.moveTo(dx,dy); x.lineTo(480,445); x.lineTo(610,388); x.lineTo(730,356);
+  x.stroke();
+  x.beginPath(); x.moveTo(dx,dy); x.lineTo(480,578); x.lineTo(610,632); x.lineTo(730,658);
+  x.stroke();
+  x.lineWidth=1.6; x.strokeStyle='rgba(140,15,15,.62)';
+  [[300,415],[248,372],[190,338]].forEach(function(p,i){i===0?x.beginPath()&&x.moveTo(p[0],p[1]):x.lineTo(p[0],p[1])});
+  x.beginPath(); x.moveTo(300,415); x.lineTo(248,372); x.lineTo(190,338); x.stroke();
+  x.beginPath(); x.moveTo(300,608); x.lineTo(248,646); x.lineTo(190,668); x.stroke();
+  x.beginPath(); x.moveTo(480,445); x.lineTo(530,405); x.lineTo(610,372); x.stroke();
+  x.beginPath(); x.moveTo(480,578); x.lineTo(530,618); x.lineTo(612,642); x.stroke();
+  var t=new THREE.CanvasTexture(cv); t.anisotropy=8; return t;
+}
+
+function makeDiseasedRetinaTex(){
+  var cv=document.createElement('canvas'); cv.width=cv.height=1024;
+  var x=cv.getContext('2d');
+  var bg=x.createRadialGradient(512,512,0,512,512,520);
+  bg.addColorStop(0,'#b03830'); bg.addColorStop(.4,'#922c22');
+  bg.addColorStop(.7,'#782218'); bg.addColorStop(1,'#5a1810');
+  x.fillStyle=bg; x.fillRect(0,0,1024,1024);
+  for(var i=0;i<9000;i++){
+    var px=Math.random()*1024,py=Math.random()*1024;
+    x.beginPath(); x.arc(px,py,Math.random()*1.3,0,Math.PI*2);
+    x.fillStyle='rgba('+(50+Math.random()*90)+','+(Math.random()*18)+',4,.065)'; x.fill();
+  }
+  // Optic disc (dim)
+  var dx=370,dy=512,dg=x.createRadialGradient(dx,dy,0,dx,dy,55);
+  dg.addColorStop(0,'#d4b070'); dg.addColorStop(.5,'#b88840'); dg.addColorStop(1,'rgba(150,75,28,0)');
+  x.fillStyle=dg; x.beginPath(); x.arc(dx,dy,55,0,Math.PI*2); x.fill();
+  // Macular edema
+  var mx=660,my=512,eg=x.createRadialGradient(mx,my,0,mx,my,115);
+  eg.addColorStop(0,'rgba(190,85,55,.82)'); eg.addColorStop(.5,'rgba(155,55,35,.52)'); eg.addColorStop(1,'rgba(120,38,22,0)');
+  x.fillStyle=eg; x.beginPath(); x.arc(mx,my,115,0,Math.PI*2); x.fill();
+  // Hemorrhages
+  [[555,398,30],[318,605,24],[705,582,20],[452,680,22],[248,442,16],[622,298,27],[752,445,17],[402,352,13],[580,620,19]].forEach(function(h){
+    var g=x.createRadialGradient(h[0],h[1],0,h[0],h[1],h[2]);
+    g.addColorStop(0,'rgba(115,0,0,.96)'); g.addColorStop(.65,'rgba(75,0,0,.72)'); g.addColorStop(1,'rgba(55,0,0,0)');
+    x.fillStyle=g; x.beginPath(); x.arc(h[0],h[1],h[2],0,Math.PI*2); x.fill();
+  });
+  // Hard exudates
+  [[585,462,15],[620,482,11],[602,504,13],[680,442,12],[698,542,10],[642,555,14],[558,525,9],[718,502,11]].forEach(function(e){
+    var g=x.createRadialGradient(e[0],e[1],0,e[0],e[1],e[2]);
+    g.addColorStop(0,'rgba(255,242,155,.92)'); g.addColorStop(.55,'rgba(222,202,82,.62)'); g.addColorStop(1,'rgba(180,162,40,0)');
+    x.fillStyle=g; x.beginPath(); x.arc(e[0],e[1],e[2],0,Math.PI*2); x.fill();
+  });
+  // Microaneurysms
+  [[422,482],[522,432],[482,562],[602,424],[362,552],[682,492],[542,572],[442,392],[702,392],[382,462],[498,510],[618,370]].forEach(function(m){
+    x.beginPath(); x.arc(m[0],m[1],3.5,0,Math.PI*2);
+    x.fillStyle='rgba(185,10,10,.92)'; x.fill();
+  });
+  // Tortuous vessels
+  x.lineCap='round'; x.lineJoin='round'; x.lineWidth=2.6; x.strokeStyle='rgba(145,18,18,.82)';
+  [[dx,dy],[290,408],[198,330],[108,268]].forEach(function(p,i){
+    i===0?x.beginPath()&&x.moveTo(p[0],p[1]):x.lineTo(p[0]+Math.sin(i*2.1)*12,p[1]+Math.cos(i*1.8)*10);
+  }); x.stroke();
+  x.beginPath(); x.moveTo(dx,dy); x.lineTo(292+Math.sin(1*2.1)*12,615+Math.cos(1*1.8)*10);
+  x.lineTo(200+Math.sin(2*2.1)*12,692+Math.cos(2*1.8)*10); x.stroke();
+  x.beginPath(); x.moveTo(dx,dy); x.lineTo(482,438); x.lineTo(618,382); x.lineTo(740,352); x.stroke();
+  // Neovascularization
+  x.lineWidth=1.2; x.strokeStyle='rgba(200,40,40,.65)';
+  x.beginPath(); x.moveTo(580,370); x.lineTo(620,340); x.lineTo(660,310); x.lineTo(700,290); x.stroke();
+  x.beginPath(); x.moveTo(350,580); x.lineTo(380,620); x.lineTo(410,660); x.stroke();
+  var t=new THREE.CanvasTexture(cv); t.anisotropy=8; return t;
+}
+
+// Build textures
+var irisTexture    = makeIrisTex();
+var healthyTex     = makeHealthyRetinaTex();
+var diseasedTex    = makeDiseasedRetinaTex();
+
+// ════════════════════════════════════════════════════════
+//  EYE GROUPS  (objects stored in layers map)
+// ════════════════════════════════════════════════════════
+var layers = { sclera:[], cornea:[], iris:[], retina:[], vessels:[], nerve:[] };
+
+// ── Sclera ──
+var scleraMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(1.0,64,64),
+  new THREE.MeshStandardMaterial({color:0xf0ece6,roughness:.58,metalness:0})
+);
+scleraMesh.castShadow=true; scleraMesh.receiveShadow=true;
+scene.add(scleraMesh); layers.sclera.push(scleraMesh);
+
+// ── Cornea ──
+var corneaMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(.44,48,48,0,Math.PI*2,0,Math.PI*.38),
+  new THREE.MeshPhongMaterial({color:0xc0e0ff,transparent:true,opacity:.14,shininess:220,side:THREE.FrontSide})
+);
+corneaMesh.position.z=.87; scene.add(corneaMesh); layers.cornea.push(corneaMesh);
+
+// ── Lens ──
+var lensMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(.275,32,32),
+  new THREE.MeshPhongMaterial({color:0xd0e8ff,transparent:true,opacity:.10,shininess:200})
+);
+lensMesh.position.z=.56; scene.add(lensMesh); layers.cornea.push(lensMesh);
+
+// ── Iris ──
+var irisMesh = new THREE.Mesh(
+  new THREE.CircleGeometry(.385,80),
+  new THREE.MeshStandardMaterial({map:irisTexture,roughness:.48,metalness:0})
+);
+irisMesh.position.z=.748; scene.add(irisMesh); layers.iris.push(irisMesh);
+
+// ── Vitreous ──
+var vitrMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(.88,32,32),
+  new THREE.MeshPhongMaterial({color:0xe0f0ff,transparent:true,opacity:.025,shininess:400})
+);
+scene.add(vitrMesh); layers.cornea.push(vitrMesh);
+
+// ── Retina spheres ──
+var healthyRetMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(.925,64,64),
+  new THREE.MeshStandardMaterial({map:healthyTex,roughness:.52,metalness:0,side:THREE.BackSide})
+);
+var diseasedRetMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(.925,64,64),
+  new THREE.MeshStandardMaterial({map:diseasedTex,roughness:.62,metalness:0,side:THREE.BackSide})
+);
+diseasedRetMesh.visible=false;
+scene.add(healthyRetMesh); scene.add(diseasedRetMesh);
+layers.retina.push(healthyRetMesh,diseasedRetMesh);
+
+// ── Optic nerve ──
+var nerveCyl = new THREE.Mesh(
+  new THREE.CylinderGeometry(.088,.11,.38,18),
+  new THREE.MeshStandardMaterial({color:0xf0d0a0,roughness:.72,metalness:0})
+);
+nerveCyl.position.set(-.08,.02,-1.02); nerveCyl.rotation.set(0,.08,0);
+scene.add(nerveCyl); layers.nerve.push(nerveCyl);
+
+var discMesh = new THREE.Mesh(
+  new THREE.CircleGeometry(.09,32),
+  new THREE.MeshStandardMaterial({color:0xe8c870,roughness:.38,emissive:0xa07820,emissiveIntensity:.22})
+);
+discMesh.position.set(-.08,.02+.19,-1.02); scene.add(discMesh); layers.nerve.push(discMesh);
+
+// ── Macular edema (diabetic) ──
+var edemaMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(.21,32,32),
+  new THREE.MeshStandardMaterial({color:0xc04858,transparent:true,opacity:.32,roughness:.72,emissive:0x882040,emissiveIntensity:.14})
+);
+edemaMesh.position.set(.29,.01,-.89); edemaMesh.visible=false;
+scene.add(edemaMesh); layers.vessels.push(edemaMesh); // toggled with vessels
+
+// ════════════════════════════════════════════════════════
+//  BLOOD VESSELS (TubeGeometry)
+// ════════════════════════════════════════════════════════
+var vesselGroup = new THREE.Group();
+scene.add(vesselGroup); layers.vessels.push(vesselGroup);
+
+var diabVesselGroup = new THREE.Group();
+scene.add(diabVesselGroup); layers.vessels.push(diabVesselGroup);
+diabVesselGroup.visible = false;
+
+// Healthy vessel paths
+var healthyPaths = [
+  [[-0.08,0.02,-0.93],[-0.18,0.26,-0.88],[-0.36,0.49,-0.77],[-0.53,0.62,-0.58],[-0.68,0.68,-0.36]],
+  [[-0.08,0.02,-0.93],[-0.18,-0.23,-0.88],[-0.36,-0.47,-0.77],[-0.55,-0.58,-0.57],[-0.70,-0.62,-0.35]],
+  [[-0.08,0.02,-0.93],[0.10,0.16,-0.91],[0.24,0.36,-0.86],[0.40,0.53,-0.74],[0.56,0.60,-0.55]],
+  [[-0.08,0.02,-0.93],[0.10,-0.13,-0.91],[0.24,-0.31,-0.86],[0.41,-0.47,-0.74],[0.59,-0.54,-0.54]],
+  [[-0.18,0.26,-0.88],[-0.30,0.36,-0.84],[-0.44,0.40,-0.79]],
+  [[-0.18,-0.23,-0.88],[-0.30,-0.32,-0.84],[-0.46,-0.35,-0.79]],
+  [[0.24,0.36,-0.86],[0.36,0.44,-0.82],[0.50,0.42,-0.76]],
+  [[0.24,-0.31,-0.86],[0.36,-0.40,-0.82],[0.52,-0.40,-0.75]],
+];
+
+// Diabetic vessel paths (tortuous)
+var diabPaths = [
+  [[-0.08,0.02,-0.93],[-0.24,0.21,-0.87],[-0.30,0.43,-0.82],[-0.44,0.52,-0.76],[-0.60,0.63,-0.54],[-0.74,0.60,-0.31]],
+  [[-0.08,0.02,-0.93],[-0.22,-0.19,-0.87],[-0.32,-0.40,-0.82],[-0.42,-0.54,-0.77],[-0.57,-0.64,-0.54]],
+  [[-0.08,0.02,-0.93],[0.12,0.19,-0.90],[0.20,0.42,-0.86],[0.34,0.57,-0.76],[0.52,0.64,-0.57]],
+  [[-0.08,0.02,-0.93],[0.14,-0.16,-0.90],[0.22,-0.40,-0.86],[0.37,-0.54,-0.75]],
+  [[0.16,0.56,-0.82],[0.30,0.64,-0.74],[0.38,0.72,-0.66]],
+  [[-0.32,0.50,-0.80],[-0.20,0.64,-0.76],[-0.08,0.72,-0.70]],
+  [[0.42,-0.34,-0.81],[0.52,-0.22,-0.83],[0.57,-0.10,-0.84]],
+];
+
+function makeTube(pts,r,color,parent){
+  var vecs=pts.map(function(p){return new THREE.Vector3(p[0],p[1],p[2]);});
+  var curve=new THREE.CatmullRomCurve3(vecs);
+  var mesh=new THREE.Mesh(
+    new THREE.TubeGeometry(curve,28,r,8,false),
+    new THREE.MeshStandardMaterial({color:color,roughness:.38,metalness:.04,emissive:color,emissiveIntensity:.07})
+  );
+  parent.add(mesh); return mesh;
+}
+
+healthyPaths.forEach(function(pts,i){makeTube(pts,i<4?.013:.008,0xbb1a1a,vesselGroup);});
+diabPaths.forEach(function(pts,i){makeTube(pts,i<4?.010:.006,0xc41111,diabVesselGroup);});
+
+// Hemorrhage spheres (diabetic)
+var hemPositions=[
+  [0.19,0.39,-0.89,.027],[-.23,.54,-.83,.022],[.41,-.16,-.90,.024],
+  [-.11,-.43,-.88,.019],[.36,.61,-.77,.020],[.62,-.28,-.73,.016]
+];
+hemPositions.forEach(function(h){
+  var m=new THREE.Mesh(new THREE.SphereGeometry(h[3],12,12),
+    new THREE.MeshStandardMaterial({color:0x8a0000,roughness:.9,transparent:true,opacity:.86,emissive:0x3a0000,emissiveIntensity:.28}));
+  m.position.set(h[0],h[1],h[2]); m.visible=false;
+  diabVesselGroup.add(m); // will toggle with diab mode
+  scene.add(m); // add to scene too
+  m._isHem=true;
+});
+
+// Exudate spheres
+var exuPositions=[[.30,.23,-.91,.018],[-.36,-.19,-.90,.016],[.12,.51,-.85,.020],[.52,.11,-.85,.015],[.44,.38,-.80,.017]];
+exuPositions.forEach(function(e){
+  var m=new THREE.Mesh(new THREE.SphereGeometry(e[3],10,10),
+    new THREE.MeshStandardMaterial({color:0xe8d060,roughness:.65,emissive:0xaa9020,emissiveIntensity:.42}));
+  m.position.set(e[0],e[1],e[2]); m.visible=false;
+  scene.add(m); layers.vessels.push(m);
+});
+
+// Microaneurysms
+[[.21,.16,-.92],[-.19,.36,-.90],[.39,-.26,-.89],[-.33,-.31,-.90],[.16,-.51,-.86],[.58,.20,-.81],[-.48,.42,-.78],[.30,-.58,-.76]].forEach(function(p){
+  var m=new THREE.Mesh(new THREE.SphereGeometry(.010,8,8),
+    new THREE.MeshStandardMaterial({color:0xcc2020,roughness:.8,emissive:0x881010,emissiveIntensity:.5}));
+  m.position.set(p[0],p[1],p[2]); m.visible=false;
+  scene.add(m); layers.vessels.push(m);
+});
+
+// ════════════════════════════════════════════════════════
+//  LABELS
+// ════════════════════════════════════════════════════════
+var labelDefs = {
+  sano:[
+    {text:'Esclerótica',       pos:new THREE.Vector3(0,1.35,0),        color:'#00d4ff'},
+    {text:'Córnea',            pos:new THREE.Vector3(0,.30,1.32),       color:'#7fd8f0'},
+    {text:'Iris',              pos:new THREE.Vector3(.34,.24,.98),      color:'#88ccff'},
+    {text:'Disco Óptico',      pos:new THREE.Vector3(-1.52,.10,-.42),   color:'#ffcc44'},
+    {text:'Retina',            pos:new THREE.Vector3(0,-1.48,0),        color:'#c8a8f8'},
+    {text:'Mácula',            pos:new THREE.Vector3(1.58,-.10,-.38),   color:'#ff9966'},
+    {text:'Fóvea',             pos:new THREE.Vector3(1.55,-.26,-.20),   color:'#ff7755'},
+    {text:'Vasos sanguíneos',  pos:new THREE.Vector3(-1.48,.62,.02),    color:'#ff8080'},
+    {text:'Nervio óptico',     pos:new THREE.Vector3(-1.50,-.40,-.82),  color:'#ffd090'},
+    {text:'Humor vítreo',      pos:new THREE.Vector3(1.10,.55,.28),     color:'#77bbdd'},
+  ],
+  diab:[
+    {text:'Hemorragias',       pos:new THREE.Vector3(-1.52,.38,-.28),   color:'#ff4444'},
+    {text:'Exudados duros',    pos:new THREE.Vector3(1.58,.22,-.48),    color:'#ffdd44'},
+    {text:'Edema macular',     pos:new THREE.Vector3(1.58,-.52,-.18),   color:'#ff9966'},
+    {text:'Microaneurismas',   pos:new THREE.Vector3(-1.52,-.40,-.08),  color:'#ff7788'},
+    {text:'Neovasos',          pos:new THREE.Vector3(1.48,.58,-.08),    color:'#ff6633'},
+    {text:'Disco Óptico',      pos:new THREE.Vector3(-1.52,.10,-.42),   color:'#ffcc44'},
+    {text:'Vasos tortuosos',   pos:new THREE.Vector3(-1.48,.72,.22),    color:'#cc3333'},
+    {text:'Daño retinal',      pos:new THREE.Vector3(0,-1.48,0),        color:'#c8a8f8'},
+  ]
+};
+
+var labelEls = [];
+function buildLabels(defs){
+  labelEls.forEach(function(el){el.remove();});
+  labelEls=[];
+  defs.forEach(function(d){
+    var el=document.createElement('div');
+    el.className='lbl';
+    el.textContent=d.text;
+    el.style.color=d.color;
+    el.style.borderColor=d.color.replace(')',',0.35)').replace('rgb(','rgba(').replace('#','');
+    el.style.border='1px solid '+d.color+'55';
+    el._pos3d=d.pos;
+    document.body.appendChild(el);
+    labelEls.push(el);
+  });
+}
+
+var showLabels=true;
+function updateLabels(){
+  if(!showLabels){labelEls.forEach(function(el){el.style.opacity='0';});return;}
+  var v=new THREE.Vector3();
+  labelEls.forEach(function(el){
+    v.copy(el._pos3d).project(cam);
+    var x=(v.x+1)/2*W, y=(-v.y+1)/2*H;
+    // hide if behind camera
+    if(v.z>1){el.style.opacity='0'; return;}
+    el.style.opacity='1';
+    el.style.left=x+'px'; el.style.top=y+'px';
+  });
+}
+
+buildLabels(labelDefs.sano);
+
+// ════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════
+var isDiabetic = false;
+
+function setMode(diab){
+  isDiabetic = diab;
+  document.body.classList.toggle('diab-mode', diab);
+  // Swap retina
+  healthyRetMesh.visible = !diab;
+  diseasedRetMesh.visible = diab;
+  // Swap vessel groups
+  vesselGroup.visible = !diab;
+  diabVesselGroup.visible = diab;
+  // Edema
+  edemaMesh.visible = diab;
+  // Extra diabetic meshes
+  layers.vessels.forEach(function(obj){
+    // exudates & microaneurysms were pushed to layers.vessels
+    if(obj!==vesselGroup && obj!==diabVesselGroup && obj!==edemaMesh){
+      obj.visible = diab;
+    }
+  });
+  // Labels
+  buildLabels(diab ? labelDefs.diab : labelDefs.sano);
+  // Info
+  document.getElementById('info-title').textContent = diab ? '⚠️ Retinopatía Diabética' : '✅ Ojo Sano';
+  document.getElementById('info-list').innerHTML = diab
+    ? '<li>Hemorragias retinales</li><li>Exudados duros amarillos</li><li>Microaneurismas</li><li>Edema macular</li><li>Neovasos anómalos</li><li>Vasos tortuosos</li>'
+    : '<li>Retina naranja-rojiza sana</li><li>Vasos bien definidos</li><li>Disco óptico claro</li><li>Mácula con fóvea central</li><li>Cristalino transparente</li><li>Sin lesiones visibles</li>';
+}
+
+function toggleLayer(name, on){
+  layers[name].forEach(function(obj){
+    // For diabetic mode, only show the right retina/vessel group
+    if(name==='retina'){
+      healthyRetMesh.visible = on && !isDiabetic;
+      diseasedRetMesh.visible = on && isDiabetic;
+    } else if(name==='vessels'){
+      vesselGroup.visible = on && !isDiabetic;
+      diabVesselGroup.visible = on && isDiabetic;
+      edemaMesh.visible = on && isDiabetic;
+      layers.vessels.forEach(function(o){
+        if(o!==vesselGroup && o!==diabVesselGroup && o!==edemaMesh) o.visible = on && isDiabetic;
+      });
+    } else {
+      obj.visible = on;
+    }
+  });
+  document.getElementById('l-'+name).parentElement.classList.toggle('off',!on);
+}
+
+function toggleLabels(on){
+  showLabels = on;
+}
+
+// ════════════════════════════════════════════════════════
+//  ANIMATION
+// ════════════════════════════════════════════════════════
+var clock = new THREE.Clock();
+
+function animate(){
+  requestAnimationFrame(animate);
+  var t = clock.getElapsedTime();
+
+  // Rim light animation
+  rimLight.intensity = .45 + Math.sin(t*.4)*.12;
+
+  // Pulse on diabetic vessels
+  if(isDiabetic){
+    diabVesselGroup.children.forEach(function(m,i){
+      var s = .86 + .14*Math.sin(t*1.5+i*.6);
+      m.scale.setScalar(s);
+    });
+  }
+
+  oc.update();
+  updateLabels();
+  composer.render();
+}
+
+animate();
+
+// ════════════════════════════════════════════════════════
+//  RESIZE
+// ════════════════════════════════════════════════════════
+window.addEventListener('resize',function(){
+  W=window.innerWidth; H=window.innerHeight;
+  cam.aspect=W/H; cam.updateProjectionMatrix();
+  ren.setSize(W,H); composer.setSize(W,H);
+});
+</script>
+</body>
+</html>
